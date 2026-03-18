@@ -2,6 +2,7 @@ app = 'secretaria-api'
 primary_region = 'gru'
 
 [build]
+  dockerfile = "apps/api/Dockerfile"
 
 [env]
   PORT = '3001'
