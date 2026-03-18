@@ -1,4 +1,4 @@
-node_modules
+**/node_modules
 .git
 .env
 .env.*
@@ -12,3 +12,4 @@ docs
 memory
 *.png
 *.jpg
+.pnpm-store
