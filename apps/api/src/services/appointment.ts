@@ -120,17 +120,18 @@ export async function listAppointments(
 ) {
   const conditions = [eq(appointments.clinicId, clinicId)];
 
+  // Use Sao Paulo timezone (UTC-3) for date filtering so dates match BRT
   if (filters.date) {
-    const dayStart = new Date(filters.date + 'T00:00:00');
-    const dayEnd = new Date(filters.date + 'T23:59:59');
+    const dayStart = new Date(filters.date + 'T00:00:00-03:00');
+    const dayEnd = new Date(filters.date + 'T23:59:59-03:00');
     conditions.push(gte(appointments.startAt, dayStart));
     conditions.push(lte(appointments.startAt, dayEnd));
   } else if (filters.dateFrom || filters.dateTo) {
     if (filters.dateFrom) {
-      conditions.push(gte(appointments.startAt, new Date(filters.dateFrom + 'T00:00:00')));
+      conditions.push(gte(appointments.startAt, new Date(filters.dateFrom + 'T00:00:00-03:00')));
     }
     if (filters.dateTo) {
-      conditions.push(lte(appointments.startAt, new Date(filters.dateTo + 'T23:59:59')));
+      conditions.push(lte(appointments.startAt, new Date(filters.dateTo + 'T23:59:59-03:00')));
     }
   }
   if (filters.status) {

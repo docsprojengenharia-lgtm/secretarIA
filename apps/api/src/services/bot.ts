@@ -125,10 +125,11 @@ export async function processIncomingMessage(
   phone: string,
   text: string,
   instanceName: string,
+  pushName?: string | null,
 ): Promise<string | null> {
   try {
-    // 1. Get or create contact
-    const contact = await contactService.getOrCreateContact(clinicId, phone);
+    // 1. Get or create contact (use pushName from WhatsApp as name)
+    const contact = await contactService.getOrCreateContact(clinicId, phone, pushName ?? undefined);
 
     // 2. Get or create active conversation
     const conversation = await conversationService.getOrCreateConversation(clinicId, contact.id);

@@ -38,6 +38,9 @@ router.post('/webhook', async (c) => {
       return c.json({ status: 'ignored' });
     }
 
+    // Extract pushName (WhatsApp profile name)
+    const pushName = data?.pushName || null;
+
     // Extract text content
     let text = '';
     if (message?.conversation) {
@@ -68,6 +71,7 @@ router.post('/webhook', async (c) => {
       instanceName,
       phone,
       text,
+      pushName,
       messageType: message?.audioMessage ? 'audio' : 'text',
       messageId: key?.id,
     });

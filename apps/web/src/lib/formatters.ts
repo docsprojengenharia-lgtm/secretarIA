@@ -11,6 +11,7 @@ export function formatDate(dateStr: string): string {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    timeZone: 'America/Sao_Paulo',
   }).format(date);
 }
 
@@ -22,6 +23,7 @@ export function formatDateTime(dateStr: string): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
   }).format(date);
 }
 
@@ -30,6 +32,7 @@ export function formatTime(dateStr: string): string {
   return new Intl.DateTimeFormat('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
   }).format(date);
 }
 
