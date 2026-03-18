@@ -1,12 +1,17 @@
 import { z } from 'zod';
 
 export const createAppointmentSchema = z.object({
-  contactId: z.string().uuid(),
+  contactId: z.string().uuid().optional(),
+  contactName: z.string().min(1).max(255).optional(),
+  contactPhone: z.string().min(10).max(20).optional(),
   professionalId: z.string().uuid(),
   serviceId: z.string().uuid(),
   startAt: z.string().datetime(),
-  source: z.enum(['ai', 'dashboard', 'manual']).default('dashboard'),
-});
+  source: z.enum(['ai', 'dashboard', 'manual', 'ligacao', 'instagram', 'presencial', 'outro']).default('dashboard'),
+}).refine(
+  (data) => data.contactId || (data.contactName && data.contactPhone),
+  { message: 'Informe o contato existente (contactId) ou nome + telefone para criar novo', path: ['contactId'] },
+);
 
 export const cancelAppointmentSchema = z.object({
   reason: z.string().optional(),

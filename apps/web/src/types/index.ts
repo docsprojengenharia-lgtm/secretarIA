@@ -79,7 +79,7 @@ export interface Appointment {
   status: 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   cancelledAt: string | null;
   cancelReason: string | null;
-  source: 'ai' | 'dashboard' | 'manual';
+  source: 'ai' | 'dashboard' | 'manual' | 'ligacao' | 'instagram' | 'presencial' | 'outro';
   createdAt: string;
   updatedAt: string;
 }
@@ -95,6 +95,7 @@ export interface Conversation {
   startedAt: string;
   endedAt: string | null;
   metadata: Record<string, unknown>;
+  lastMessage: string | null;
   createdAt: string;
   updatedAt: string;
   messages?: Message[];

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatTime, formatCurrency } from '@/lib/formatters';
 import type { Appointment, Professional } from '@/types';
+import NewAppointmentModal from './NewAppointmentModal';
 
 const STATUS_BADGE: Record<string, string> = {
   confirmed: 'bg-green-100 text-green-800',
@@ -80,6 +81,7 @@ export default function AgendaPage() {
   const [loadingMonth, setLoadingMonth] = useState(true);
   const [loadingDay, setLoadingDay] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showNewModal, setShowNewModal] = useState(false);
 
   const monthDays = useMemo(() => getMonthDays(currentYear, currentMonth), [currentYear, currentMonth]);
 
@@ -202,6 +204,15 @@ export default function AgendaPage() {
               ))}
             </select>
           </div>
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors self-end"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Novo Agendamento
+          </button>
         </div>
       </div>
 
@@ -387,6 +398,18 @@ export default function AgendaPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de novo agendamento */}
+      <NewAppointmentModal
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onCreated={() => {
+          fetchDayAppointments();
+          fetchMonthAppointments();
+        }}
+        professionals={professionals}
+        defaultDate={selectedDate}
+      />
     </div>
   );
 }

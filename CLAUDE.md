@@ -35,13 +35,13 @@ Foco: comercios locais e pequenas empresas baseadas em agendamento (clinicas, sa
 | API | Hono + Node.js + TypeScript |
 | Web (dashboard) | Next.js 14 + React 18 + Tailwind CSS |
 | Database | PostgreSQL + Drizzle ORM + pgvector |
-| Cache/Filas | Redis + BullMQ |
+| Cache/Filas | Redis + BullMQ (opcional — funciona sem Redis, filas desabilitadas) |
 | WhatsApp | Evolution API (self-hosted, Fly.io) |
 | IA | OpenAI GPT-4.1-mini (atendimento) + text-embedding-3-small (knowledge base) |
 | Audio | OpenAI Whisper (transcrever audios do WhatsApp) |
 | Auth | JWT + bcryptjs |
 | Validacao | Zod (input/output) |
-| Deploy | Fly.io (API + Evolution API) + Vercel (Web) |
+| Deploy | Fly.io (API) + Vercel (Web) + Fly Postgres (DB) |
 | Pagamento | Asaas (PIX + boleto recorrente) |
 
 ## Arquitetura (implementada)
@@ -107,6 +107,11 @@ Ideal pra quem JA tem sistema proprio e quer usar SecretarIA so como atendente n
 ### 2. Agenda
 - Calendario visual por profissional/recurso
 - Horarios livres e preenchidos (marcacao manual pela secretaria ou automatica pela IA)
+- **Agendamento manual via dashboard** (botao "+ Novo Agendamento"):
+  - Busca contato existente ou cria novo inline (nome + telefone)
+  - Seleciona profissional → carrega servicos vinculados
+  - Grade visual de horarios disponiveis
+  - Origem: manual, ligacao, instagram, presencial, outro
 - Suporte multi-profissional (ex: 5 medicos, 3 cabeleireiros — cada um com agenda propria)
 - Cancelamento e reagendamento (via dashboard e via WhatsApp)
 - Fila de espera: sem horario disponivel → cliente entra na fila, notificado quando abrir vaga
@@ -214,6 +219,41 @@ pnpm db:studio        # Drizzle Studio (GUI do banco)
 pnpm seed             # Popular banco com dados de demo (Barbearia do Ze)
 docker compose up -d  # Subir PostgreSQL + Redis
 ```
+
+## Deploy (producao)
+
+### URLs
+- **Frontend:** https://secretaria-web-tau.vercel.app
+- **API:** https://secretaria-api.fly.dev
+- **GitHub:** https://github.com/docsprojengenharia-lgtm/secretarIA
+
+### Infra
+- API: Fly.io app `secretaria-api` (GRU, 512MB)
+- DB: Fly Postgres app `secretaria-db` (256MB, database `secretaria_api`)
+- Frontend: Vercel project `secretaria-web`
+- Redis: NAO configurado em producao (opcional — filas WhatsApp desabilitadas)
+
+### Deploy commands
+```bash
+# API (Fly.io)
+/c/Users/di_da/.fly/bin/flyctl deploy -a secretaria-api
+
+# Frontend (Vercel)
+vercel --prod --yes --force
+
+# Push schema pro banco de producao (via proxy)
+/c/Users/di_da/.fly/bin/flyctl proxy 15432:5432 -a secretaria-db &
+DATABASE_URL="postgres://postgres:NNKDr21PlWZkmzc@localhost:15432/secretaria_api" pnpm db:push
+
+# Seed em producao
+DATABASE_URL="postgres://postgres:NNKDr21PlWZkmzc@localhost:15432/secretaria_api" npx tsx apps/api/src/scripts/seed.ts
+```
+
+### Notas importantes de deploy
+- NEXT_PUBLIC_API_URL tem fallback hardcoded em `apps/web/src/lib/api.ts` (env var do Vercel corrompeu)
+- CORS_ORIGINS no Fly.io deve incluir URL da Vercel: `flyctl secrets set CORS_ORIGINS="http://localhost:3000,https://secretaria-web-tau.vercel.app"`
+- Fly Postgres NAO tem pgvector instalado — coluna embedding esta como `text` temporariamente
+- Database de producao eh `secretaria_api`, NAO `postgres`
 
 ## Seed (dados de teste)
 

@@ -1,18 +1,60 @@
 import { db } from '@secretaria/db';
 import { appointments, services, contacts, professionals } from '@secretaria/db';
-import { eq, and, gte, lte, sql, desc } from 'drizzle-orm';
+import { eq, and, gte, lte, sql, desc, isNull } from 'drizzle-orm';
 import { AppError } from '../lib/errors.js';
 
 export async function createAppointment(
   clinicId: string,
   data: {
-    contactId: string;
+    contactId?: string;
+    contactName?: string;
+    contactPhone?: string;
     professionalId: string;
     serviceId: string;
     startAt: string;
     source?: string;
   },
 ) {
+  // Resolve contactId — use existing or create new contact
+  let contactId = data.contactId;
+
+  if (!contactId && data.contactName && data.contactPhone) {
+    // Check if contact with same phone already exists for this clinic
+    const [existing] = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(
+        eq(contacts.clinicId, clinicId),
+        eq(contacts.phone, data.contactPhone),
+        isNull(contacts.deletedAt),
+      ))
+      .limit(1);
+
+    if (existing) {
+      contactId = existing.id;
+      // Update name if it was null
+      await db
+        .update(contacts)
+        .set({ name: data.contactName, updatedAt: new Date() })
+        .where(and(eq(contacts.id, existing.id), isNull(contacts.name)));
+    } else {
+      const [newContact] = await db
+        .insert(contacts)
+        .values({
+          clinicId,
+          name: data.contactName,
+          phone: data.contactPhone,
+          status: 'active',
+        })
+        .returning();
+      contactId = newContact.id;
+    }
+  }
+
+  if (!contactId) {
+    throw new AppError('CONTACT_REQUIRED', 'Contato obrigatorio: informe contactId ou nome + telefone', 400);
+  }
+
   // Get service duration to calculate endAt
   const [service] = await db
     .select({ durationMinutes: services.durationMinutes })
@@ -48,7 +90,7 @@ export async function createAppointment(
       .insert(appointments)
       .values({
         clinicId,
-        contactId: data.contactId,
+        contactId,
         professionalId: data.professionalId,
         serviceId: data.serviceId,
         startAt,
