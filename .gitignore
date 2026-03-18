@@ -1,0 +1,59 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist
+build
+.next
+out
+*.tsbuildinfo
+
+# Database
+*.db
+*.db-journal
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# Claude Code (local only)
+.claude/settings.local.json
+
+# Drizzle
+drizzle
+
+# Fly.io
+.fly
+
+# Secrets & credentials
+*.pem
+*.key
+*.cert
+credentials.json
+service-account*.json
+
+# Docker volumes data
+pgdata/
+postgres-data/
+
+# Misc
+*.tgz
+coverage/

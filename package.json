@@ -1,0 +1,24 @@
+{
+  "name": "secretaria",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter api dev & pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter api build && pnpm --filter web build",
+    "db:generate": "pnpm --filter db generate",
+    "db:migrate": "pnpm --filter db migrate",
+    "db:push": "pnpm --filter db push",
+    "db:studio": "pnpm --filter db studio",
+    "seed": "npx tsx apps/api/src/scripts/seed.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}
