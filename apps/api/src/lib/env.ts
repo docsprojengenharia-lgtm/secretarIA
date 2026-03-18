@@ -9,7 +9,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().default('redis://localhost:6379'),
+  REDIS_URL: z.string().default(''),
   JWT_SECRET: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
   EVOLUTION_API_URL: z.string().min(1),

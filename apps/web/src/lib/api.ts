@@ -1,6 +1,8 @@
 import { getToken, removeToken } from './auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http')
+  ? process.env.NEXT_PUBLIC_API_URL
+  : 'https://secretaria-api.fly.dev';
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

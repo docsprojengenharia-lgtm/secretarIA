@@ -1,7 +1,7 @@
 import { db } from '@secretaria/db';
 import { appointments, contacts, services, clinics } from '@secretaria/db';
 import { eq, and, lte, gte, isNull } from 'drizzle-orm';
-import { outgoingQueue } from '../workers/setup.js';
+import { addToOutgoingQueue } from '../workers/setup.js';
 
 /**
  * NPS Sender — runs every hour.
@@ -41,7 +41,7 @@ export async function runNpsSender() {
     const name = row.contactName || 'Cliente';
     const text = `Oi ${name}! Como foi seu ${row.serviceName}? De 1 a 5, qual sua nota?\n\n1 - Pessimo\n2 - Ruim\n3 - Regular\n4 - Bom\n5 - Excelente\n\nSeu feedback nos ajuda a melhorar!`;
 
-    await outgoingQueue.add('nps', {
+    await addToOutgoingQueue('nps', {
       instanceName: row.instanceName,
       phone: row.contactPhone,
       text,

@@ -2,7 +2,7 @@ import type { Job } from 'bullmq';
 import * as botService from '../services/bot.js';
 import { downloadAudio } from '../services/audioDownloader.js';
 import { transcribeAudio } from '../services/openai.js';
-import { outgoingQueue } from './setup.js';
+import { addToOutgoingQueue } from './setup.js';
 
 export interface IncomingJobData {
   clinicId: string;
@@ -34,7 +34,7 @@ export async function processIncomingJob(job: Job<IncomingJobData>) {
 
   if (response) {
     // Queue outgoing response
-    await outgoingQueue.add('send', {
+    await addToOutgoingQueue('send', {
       instanceName,
       phone,
       text: response,

@@ -4,7 +4,7 @@ import {
   services, users, conversations,
 } from '@secretaria/db';
 import { eq, and, gte, lte, sql } from 'drizzle-orm';
-import { outgoingQueue } from '../workers/setup.js';
+import { addToOutgoingQueue } from '../workers/setup.js';
 
 export async function runDailySummary() {
   const activeClinics = await db
@@ -130,7 +130,7 @@ export async function runDailySummary() {
         }
       }
 
-      await outgoingQueue.add('daily-summary-owner', {
+      await addToOutgoingQueue('daily-summary-owner', {
         instanceName: clinic.instanceName,
         phone: owner.phone,
         text: ownerText.trim(),
@@ -169,7 +169,7 @@ export async function runDailySummary() {
 
       profText += `\nBom trabalho!`;
 
-      await outgoingQueue.add('daily-summary-prof', {
+      await addToOutgoingQueue('daily-summary-prof', {
         instanceName: clinic.instanceName,
         phone: prof.phone,
         text: profText.trim(),

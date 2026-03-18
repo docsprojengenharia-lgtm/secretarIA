@@ -3,7 +3,7 @@ import { db } from '@secretaria/db';
 import { clinics } from '@secretaria/db';
 import { eq } from 'drizzle-orm';
 import * as whatsappService from '../services/whatsapp.js';
-import { incomingQueue } from '../workers/setup.js';
+import { addToIncomingQueue } from '../workers/setup.js';
 import { success, error } from '../lib/response.js';
 import { env } from '../lib/env.js';
 
@@ -63,7 +63,7 @@ router.post('/webhook', async (c) => {
     }
 
     // Add to processing queue
-    await incomingQueue.add('process', {
+    const queued = await addToIncomingQueue('process', {
       clinicId: clinic.id,
       instanceName,
       phone,
@@ -72,7 +72,7 @@ router.post('/webhook', async (c) => {
       messageId: key?.id,
     });
 
-    return c.json({ status: 'queued' });
+    return c.json({ status: queued ? 'queued' : 'queue_unavailable' });
   } catch (err) {
     console.error('[Webhook] Error:', err);
     return c.json({ status: 'error' }, 200); // Always return 200 to webhook

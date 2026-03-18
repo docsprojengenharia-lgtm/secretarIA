@@ -57,3 +57,5 @@ postgres-data/
 # Misc
 *.tgz
 coverage/
+
+.vercel

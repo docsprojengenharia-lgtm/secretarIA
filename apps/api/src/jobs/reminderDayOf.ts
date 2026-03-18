@@ -1,7 +1,7 @@
 import { db } from '@secretaria/db';
 import { appointments, contacts, professionals, services, clinics } from '@secretaria/db';
 import { eq, and, gte, lte } from 'drizzle-orm';
-import { outgoingQueue } from '../workers/setup.js';
+import { addToOutgoingQueue } from '../workers/setup.js';
 
 export async function runReminderDayOf() {
   const now = new Date();
@@ -39,7 +39,7 @@ export async function runReminderDayOf() {
 
     const text = `Oi ${name}! Seu ${row.serviceName} e daqui a 2 horas, as ${time}. Ate logo!`;
 
-    await outgoingQueue.add('reminder-day-of', {
+    await addToOutgoingQueue('reminder-day-of', {
       instanceName: row.instanceName,
       phone: row.contactPhone,
       text,

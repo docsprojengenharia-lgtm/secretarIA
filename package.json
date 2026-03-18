@@ -13,6 +13,9 @@
     "db:studio": "pnpm --filter db studio",
     "seed": "npx tsx apps/api/src/scripts/seed.ts"
   },
+  "dependencies": {
+    "next": "14.2.35"
+  },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
