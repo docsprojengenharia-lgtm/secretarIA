@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { removeToken } from '@/lib/auth';
+import { removeToken, removeRefreshToken } from '@/lib/auth';
 import { useAuthStore } from '@/store/auth';
 import {
   LayoutDashboard,
@@ -19,6 +19,8 @@ import {
   ClipboardList,
   BookOpen,
   CalendarOff,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 
 const menuItems = [
@@ -31,6 +33,8 @@ const menuItems = [
   { label: 'Profissionais', icon: UserCog, href: '/dashboard/professionals' },
   { label: 'Servicos', icon: Scissors, href: '/dashboard/services' },
   { label: 'Conhecimento', icon: BookOpen, href: '/dashboard/knowledge' },
+  { label: 'Analytics', icon: BarChart3, href: '/dashboard/analytics' },
+  { label: 'Relatorios', icon: FileText, href: '/dashboard/reports' },
   { label: 'Configuracoes', icon: Settings, href: '/dashboard/settings' },
 ];
 
@@ -42,6 +46,7 @@ export default function Sidebar() {
 
   function handleLogout() {
     removeToken();
+    removeRefreshToken();
     clearAuth();
     router.replace('/login');
   }

@@ -5,7 +5,7 @@ import { contacts } from './contacts';
 export const conversations = pgTable('conversations', {
   id: uuid('id').primaryKey().defaultRandom(),
   clinicId: uuid('clinic_id').notNull().references(() => clinics.id, { onDelete: 'cascade' }),
-  contactId: uuid('contact_id').notNull().references(() => contacts.id),
+  contactId: uuid('contact_id').notNull().references(() => contacts.id, { onDelete: 'cascade' }),
   status: varchar('status', { length: 20 }).notNull().default('active'), // active, pending_human, closed
   channel: varchar('channel', { length: 20 }).notNull().default('whatsapp'),
   startedAt: timestamp('started_at').notNull().defaultNow(),

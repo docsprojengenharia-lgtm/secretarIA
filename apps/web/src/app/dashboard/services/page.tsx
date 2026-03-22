@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/formatters';
 import type { Service } from '@/types';
@@ -114,9 +115,11 @@ export default function ServicesPage() {
     setSaving(false);
 
     if (res.success) {
+      toast.success(editingId ? 'Servico atualizado com sucesso' : 'Servico cadastrado com sucesso');
       resetForm();
       fetchServices();
     } else {
+      toast.error(res.error?.message || 'Erro ao salvar servico');
       setError(res.error?.message || 'Erro ao salvar');
     }
   }
@@ -125,7 +128,10 @@ export default function ServicesPage() {
     if (!window.confirm('Tem certeza que deseja excluir este servico?')) return;
     const res = await api.delete(`/services/${id}`);
     if (res.success) {
+      toast.success('Servico excluido com sucesso');
       fetchServices();
+    } else {
+      toast.error(res.error?.message || 'Erro ao excluir servico');
     }
   }
 

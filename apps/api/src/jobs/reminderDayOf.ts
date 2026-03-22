@@ -2,6 +2,7 @@ import { db } from '@secretaria/db';
 import { appointments, contacts, professionals, services, clinics } from '@secretaria/db';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { addToOutgoingQueue } from '../workers/setup.js';
+import { logger } from '../lib/logger.js';
 
 export async function runReminderDayOf() {
   const now = new Date();
@@ -29,7 +30,7 @@ export async function runReminderDayOf() {
       lte(appointments.startAt, threeHoursFromNow),
     ));
 
-  console.log(`[ReminderDayOf] Found ${rows.length} appointments in next 2-3 hours`);
+  logger.info({ count: rows.length }, 'ReminderDayOf: agendamentos nas proximas 2-3h');
 
   for (const row of rows) {
     if (!row.instanceName || !row.contactPhone) continue;

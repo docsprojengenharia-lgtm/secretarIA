@@ -139,16 +139,23 @@ export async function updateContact(
   id: string,
   data: {
     name?: string;
-    notes?: string;
+    email?: string | null;
+    notes?: string | null;
     status?: string;
+    birthDate?: string | null;
   },
 ) {
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.email !== undefined) updateData.email = data.email;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+  if (data.status !== undefined) updateData.status = data.status;
+  if (data.birthDate !== undefined) updateData.birthDate = data.birthDate;
+
   const [updated] = await db
     .update(contacts)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
+    .set(updateData)
     .where(
       and(
         eq(contacts.id, id),
@@ -163,4 +170,27 @@ export async function updateContact(
   }
 
   return updated;
+}
+
+export async function softDeleteContact(clinicId: string, id: string) {
+  const [deleted] = await db
+    .update(contacts)
+    .set({
+      deletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(contacts.id, id),
+        eq(contacts.clinicId, clinicId),
+        isNull(contacts.deletedAt),
+      ),
+    )
+    .returning();
+
+  if (!deleted) {
+    throw new AppError('CONTACT_NOT_FOUND', 'Contato nao encontrado', 404);
+  }
+
+  return deleted;
 }

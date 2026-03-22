@@ -16,6 +16,11 @@ export const clinicSettings = pgTable('clinic_settings', {
   maxAdvanceDays: integer('max_advance_days').notNull().default(30),
   slotIntervalMinutes: integer('slot_interval_minutes').notNull().default(0),
   autoBook: boolean('auto_book').notNull().default(true), // true=Modo1(agenda direto), false=Modo2(captura+aprovacao)
+  // Engajamento — reativacao
+  reactivationEnabled: boolean('reactivation_enabled').notNull().default(false),
+  reactivationDays: integer('reactivation_days').notNull().default(30), // dias sem consulta para reativar
+  // Engajamento — aniversario
+  birthdayEnabled: boolean('birthday_enabled').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

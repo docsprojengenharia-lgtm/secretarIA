@@ -17,6 +17,8 @@ const envSchema = z.object({
   API_URL: z.string().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  SENTRY_DSN: z.string().optional().default(''),
+  INSTAGRAM_VERIFY_TOKEN: z.string().optional().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);

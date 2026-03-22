@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { setToken } from '@/lib/auth';
+import { setToken, setRefreshToken } from '@/lib/auth';
 import { useAuthStore } from '@/store/auth';
 
 export default function LoginPage() {
@@ -20,13 +20,14 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    const res = await api.post<{ token: string; user: any; clinic: any }>('/auth/login', {
+    const res = await api.post<{ token: string; refreshToken: string; user: any; clinic: any }>('/auth/login', {
       email,
       password,
     });
 
     if (res.success && res.data) {
       setToken(res.data.token);
+      if (res.data.refreshToken) setRefreshToken(res.data.refreshToken);
       setAuth(res.data.user, res.data.clinic);
       router.replace('/dashboard');
     } else {

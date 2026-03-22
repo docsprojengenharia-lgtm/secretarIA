@@ -7,7 +7,7 @@ export const createAppointmentSchema = z.object({
   professionalId: z.string().uuid(),
   serviceId: z.string().uuid(),
   startAt: z.string().datetime(),
-  source: z.enum(['ai', 'dashboard', 'manual', 'ligacao', 'instagram', 'presencial', 'outro']).default('dashboard'),
+  source: z.enum(['ai', 'dashboard', 'manual', 'ligacao', 'instagram', 'presencial', 'outro', 'booking_page']).default('dashboard'),
 }).refine(
   (data) => data.contactId || (data.contactName && data.contactPhone),
   { message: 'Informe o contato existente (contactId) ou nome + telefone para criar novo', path: ['contactId'] },

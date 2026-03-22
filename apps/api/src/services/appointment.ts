@@ -1,7 +1,10 @@
 import { db } from '@secretaria/db';
-import { appointments, services, contacts, professionals } from '@secretaria/db';
+import { appointments, services, contacts, professionals, professionalServices, clinics } from '@secretaria/db';
 import { eq, and, gte, lte, sql, desc, isNull } from 'drizzle-orm';
 import { AppError } from '../lib/errors.js';
+import { addToOutgoingQueue } from '../workers/setup.js';
+import * as whatsappService from './whatsapp.js';
+import { checkAndNotifyWaitlist } from './waitlistNotifier.js';
 
 export async function createAppointment(
   clinicId: string,
@@ -69,6 +72,22 @@ export async function createAppointment(
   const startAtISO = startAt.toISOString();
   const endAtISO = endAt.toISOString();
 
+  // Validar que o profissional oferece este servico
+  const [profServiceLink] = await db
+    .select({ id: professionalServices.professionalId })
+    .from(professionalServices)
+    .where(
+      and(
+        eq(professionalServices.professionalId, data.professionalId),
+        eq(professionalServices.serviceId, data.serviceId)
+      )
+    )
+    .limit(1);
+
+  if (!profServiceLink) {
+    throw new AppError('SERVICE_NOT_OFFERED', 'Este profissional nao oferece o servico selecionado', 400);
+  }
+
   // Transaction with lock to prevent double-booking
   const result = await db.transaction(async (tx) => {
     // Check for conflicting appointments (SELECT FOR UPDATE)
@@ -76,7 +95,8 @@ export async function createAppointment(
       SELECT id FROM appointments
       WHERE clinic_id = ${clinicId}
         AND professional_id = ${data.professionalId}
-        AND status = 'confirmed'
+        AND status NOT IN ('cancelled', 'no_show')
+        AND deleted_at IS NULL
         AND start_at < ${endAtISO}::timestamp
         AND end_at > ${startAtISO}::timestamp
       FOR UPDATE SKIP LOCKED
@@ -118,7 +138,7 @@ export async function listAppointments(
     limit: number;
   },
 ) {
-  const conditions = [eq(appointments.clinicId, clinicId)];
+  const conditions = [eq(appointments.clinicId, clinicId), isNull(appointments.deletedAt)];
 
   // Use Sao Paulo timezone (UTC-3) for date filtering so dates match BRT
   if (filters.date) {
@@ -204,7 +224,7 @@ export async function getAppointment(clinicId: string, id: string) {
     .leftJoin(contacts, eq(appointments.contactId, contacts.id))
     .leftJoin(professionals, eq(appointments.professionalId, professionals.id))
     .leftJoin(services, eq(appointments.serviceId, services.id))
-    .where(and(eq(appointments.id, id), eq(appointments.clinicId, clinicId)))
+    .where(and(eq(appointments.id, id), eq(appointments.clinicId, clinicId), isNull(appointments.deletedAt)))
     .limit(1);
 
   if (!appt) throw new AppError('APPOINTMENT_NOT_FOUND', 'Agendamento nao encontrado', 404);
@@ -228,6 +248,66 @@ export async function cancelAppointment(clinicId: string, id: string, reason?: s
     .returning();
 
   if (!updated) throw new AppError('APPOINTMENT_NOT_FOUND', 'Agendamento nao encontrado ou ja cancelado', 404);
+
+  // Notificar contato via WhatsApp
+  try {
+    // Buscar dados do contato, servico e clinica
+    const [contact] = await db
+      .select({ name: contacts.name, phone: contacts.phone })
+      .from(contacts)
+      .where(eq(contacts.id, updated.contactId))
+      .limit(1);
+
+    const [service] = await db
+      .select({ name: services.name })
+      .from(services)
+      .where(eq(services.id, updated.serviceId))
+      .limit(1);
+
+    const [clinic] = await db
+      .select({ evolutionInstanceName: clinics.evolutionInstanceName })
+      .from(clinics)
+      .where(eq(clinics.id, clinicId))
+      .limit(1);
+
+    if (contact?.phone && clinic?.evolutionInstanceName) {
+      const contactName = contact.name || 'Cliente';
+      const serviceName = service?.name || 'seu servico';
+      const date = new Date(updated.startAt).toLocaleDateString('pt-BR');
+      const time = new Date(updated.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      const text = `Oi ${contactName}! Seu agendamento de ${serviceName} em ${date} as ${time} foi cancelado. Para reagendar, entre em contato!`;
+
+      const queued = await addToOutgoingQueue('appointment-cancelled', {
+        instanceName: clinic.evolutionInstanceName,
+        phone: contact.phone,
+        text,
+      });
+
+      // Fallback: enviar diretamente se a fila nao estiver disponivel
+      if (!queued) {
+        await whatsappService.sendTextMessage(clinic.evolutionInstanceName, contact.phone, text);
+      }
+    }
+  } catch (err) {
+    console.error('[Appointment] Erro ao enviar notificacao de cancelamento via WhatsApp:', err);
+    // Nao falhar a operacao principal por causa de erro na notificacao
+  }
+
+  // Verificar waitlist e notificar proximo da fila
+  try {
+    await checkAndNotifyWaitlist(
+      clinicId,
+      updated.professionalId,
+      updated.serviceId,
+      new Date(updated.startAt),
+      new Date(updated.endAt),
+    );
+  } catch (err) {
+    console.error('[Appointment] Erro ao verificar waitlist apos cancelamento:', err);
+    // Nao falhar a operacao principal
+  }
+
   return updated;
 }
 
@@ -259,4 +339,22 @@ export async function noShowAppointment(clinicId: string, id: string) {
 
   if (!updated) throw new AppError('APPOINTMENT_NOT_FOUND', 'Agendamento nao encontrado', 404);
   return updated;
+}
+
+export async function softDeleteAppointment(clinicId: string, id: string) {
+  const [deleted] = await db
+    .update(appointments)
+    .set({
+      deletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(appointments.id, id),
+      eq(appointments.clinicId, clinicId),
+      isNull(appointments.deletedAt),
+    ))
+    .returning();
+
+  if (!deleted) throw new AppError('APPOINTMENT_NOT_FOUND', 'Agendamento nao encontrado', 404);
+  return deleted;
 }

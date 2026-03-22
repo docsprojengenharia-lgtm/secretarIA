@@ -6,27 +6,31 @@ import * as availabilityService from './availability.js';
 import * as bookingRequestService from './bookingRequest.js';
 import * as knowledgeService from './knowledge.js';
 import { buildSystemPrompt } from '../prompts/attendant.js';
+import { getCached } from '../lib/cache.js';
 import { db } from '@secretaria/db';
 import {
   clinics, clinicSettings, services, professionals,
   professionalServices, appointments,
 } from '@secretaria/db';
-import { eq, and, isNull, isNotNull, gte } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, gte, desc } from 'drizzle-orm';
 import type { ClinicSettings } from '@secretaria/db';
 
 const FALLBACK_MESSAGE = 'Desculpe, tive um problema tecnico. Um atendente vai te ajudar em breve.';
 
 /**
- * Handle NPS response: if the contact has a pending NPS (sent but not responded),
- * and the message is a number 1-5, save the score and return a thank-you message.
- * Returns null if this is not an NPS response.
+ * Trata resposta NPS: se o contato tem um NPS pendente (enviado mas nao respondido),
+ * ou um appointment completed nas ultimas 48h sem NPS, e a mensagem e um numero 1-5,
+ * salva o score e retorna mensagem de agradecimento.
+ * Retorna null se nao for uma resposta NPS.
  */
 async function handleNpsResponse(clinicId: string, contactId: string, text: string): Promise<string | null> {
-  const score = parseInt(text.trim());
-  if (isNaN(score) || score < 1 || score > 5) return null;
+  const npsMatch = text.trim().match(/^([1-5])$/);
+  if (!npsMatch) return null;
 
-  // Find appointment with NPS sent but not responded for this contact
-  const [appt] = await db
+  const score = parseInt(npsMatch[1]);
+
+  // Prioridade 1: appointment com NPS enviado mas nao respondido
+  const [pendingNps] = await db
     .select({ id: appointments.id })
     .from(appointments)
     .where(and(
@@ -36,11 +40,28 @@ async function handleNpsResponse(clinicId: string, contactId: string, text: stri
       isNotNull(appointments.npsSentAt),
       isNull(appointments.npsRespondedAt),
     ))
+    .orderBy(desc(appointments.endAt))
     .limit(1);
 
+  // Prioridade 2: appointment completed nas ultimas 48h sem nenhum NPS score
+  const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const [recentCompleted] = !pendingNps ? await db
+    .select({ id: appointments.id })
+    .from(appointments)
+    .where(and(
+      eq(appointments.clinicId, clinicId),
+      eq(appointments.contactId, contactId),
+      eq(appointments.status, 'completed'),
+      isNull(appointments.npsScore),
+      gte(appointments.endAt, fortyEightHoursAgo),
+    ))
+    .orderBy(desc(appointments.endAt))
+    .limit(1) : [undefined];
+
+  const appt = pendingNps || recentCompleted;
   if (!appt) return null;
 
-  // Save NPS score
+  // Salvar NPS score
   await db.update(appointments)
     .set({
       npsScore: score,
@@ -48,7 +69,7 @@ async function handleNpsResponse(clinicId: string, contactId: string, text: stri
     })
     .where(eq(appointments.id, appt.id));
 
-  console.log(`[Bot] NPS score ${score} saved for appointment ${appt.id}`);
+  console.log(`[Bot] NPS score ${score} salvo para appointment ${appt.id}`);
 
   const responses: Record<number, string> = {
     1: 'Poxa, lamentamos muito. Vamos trabalhar para melhorar! Obrigado pelo feedback.',
@@ -142,30 +163,97 @@ export async function processIncomingMessage(
       return npsResult;
     }
 
-    // 3. If conversation is pending_human, reply with status message
+    // 3. Se conversa esta pending_human, verificar se o handoff expirou (30 min sem resposta humana)
     if (conversation.status === 'pending_human') {
-      const pendingMsg = 'Sua solicitacao ja esta com nossa equipe. Em breve alguem vai te atender!';
-      await conversationService.addMessage(clinicId, conversation.id, 'assistant', pendingMsg);
-      return pendingMsg;
+      const HANDOFF_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+      const lastDashboardReply = await conversationService.getLastDashboardReply(conversation.id);
+
+      if (lastDashboardReply) {
+        // Humano respondeu — verificar se faz mais de 30 min desde a ultima resposta
+        const timeSinceReply = Date.now() - lastDashboardReply.getTime();
+        if (timeSinceReply > HANDOFF_TIMEOUT_MS) {
+          // Timeout: retomar bot automaticamente
+          await conversationService.resumeConversation(clinicId, conversation.id);
+          console.log(`[Bot] Handoff expirado para conversa ${conversation.id}, bot reassumindo`);
+          // Continua o fluxo normal abaixo (bot processa a mensagem)
+        } else {
+          // Humano respondeu recentemente — manter pending, salvar mensagem do usuario
+          await conversationService.addMessage(clinicId, conversation.id, 'user', text);
+          const pendingMsg = 'Sua mensagem foi encaminhada para nosso atendente. Aguarde a resposta!';
+          await conversationService.addMessage(clinicId, conversation.id, 'assistant', pendingMsg);
+          return pendingMsg;
+        }
+      } else {
+        // Nenhum humano respondeu ainda — verificar tempo desde o handoff
+        const handoffAt = (conversation.metadata as Record<string, unknown>)?.handoffAt;
+        const handoffTime = handoffAt ? new Date(handoffAt as string).getTime() : conversation.updatedAt.getTime();
+        const timeSinceHandoff = Date.now() - handoffTime;
+
+        if (timeSinceHandoff > HANDOFF_TIMEOUT_MS) {
+          // Timeout sem nenhuma resposta humana: retomar bot
+          await conversationService.resumeConversation(clinicId, conversation.id);
+          console.log(`[Bot] Handoff expirado (sem resposta humana) para conversa ${conversation.id}, bot reassumindo`);
+          // Continua o fluxo normal abaixo
+        } else {
+          // Ainda dentro do prazo — manter pending
+          await conversationService.addMessage(clinicId, conversation.id, 'user', text);
+          const pendingMsg = 'Sua solicitacao ja esta com nossa equipe. Em breve alguem vai te atender!';
+          await conversationService.addMessage(clinicId, conversation.id, 'assistant', pendingMsg);
+          return pendingMsg;
+        }
+      }
     }
 
     // 4. Save user message
     await conversationService.addMessage(clinicId, conversation.id, 'user', text);
 
-    // 5. Check if AI is active
-    const [settings] = await db
-      .select()
-      .from(clinicSettings)
-      .where(eq(clinicSettings.clinicId, clinicId))
-      .limit(1);
+    // 4.5. Verificar se ha cancelamento pendente de confirmacao
+    const recentMsgsForCancel = await conversationService.getRecentMessages(conversation.id, 5);
+    const lastBotMsg = [...recentMsgsForCancel].reverse().find(
+      m => m.role === 'assistant' && (m.metadata as Record<string, unknown>)?.pendingCancellation,
+    );
+
+    if (lastBotMsg) {
+      const pendingApptId = (lastBotMsg.metadata as Record<string, unknown>).pendingCancellation as string;
+      const normalizedText = text.trim().toLowerCase();
+      const isConfirmation = ['sim', 'si', 's', 'confirma', 'confirmar', 'pode cancelar', 'quero cancelar', 'isso'].includes(normalizedText);
+      const isDenial = ['nao', 'não', 'n', 'nope', 'desisto', 'deixa', 'esquece'].includes(normalizedText);
+
+      if (isConfirmation) {
+        try {
+          await appointmentService.cancelAppointment(clinicId, pendingApptId, 'Cancelado pelo cliente via WhatsApp');
+          console.info(`[Bot] Appointment ${pendingApptId} cancelado (confirmacao 2-step) na clinica ${clinicId}`);
+          const cancelMsg = 'Agendamento cancelado com sucesso! Quer reagendar para outro dia?';
+          await conversationService.addMessage(clinicId, conversation.id, 'assistant', cancelMsg, 'CANCELAR', { model: 'gpt-4.1-mini' });
+          return cancelMsg;
+        } catch (err) {
+          console.error('[Bot] Erro ao cancelar appointment (2-step):', err);
+          const errorMsg = 'Tive um problema ao cancelar. Tente novamente ou entre em contato no proximo expediente.';
+          await conversationService.addMessage(clinicId, conversation.id, 'assistant', errorMsg, 'CANCELAR', { model: 'gpt-4.1-mini' });
+          return errorMsg;
+        }
+      } else if (isDenial) {
+        const keepMsg = 'Tudo certo, seu agendamento continua confirmado! Posso ajudar com mais alguma coisa?';
+        await conversationService.addMessage(clinicId, conversation.id, 'assistant', keepMsg, 'CANCELAR', { model: 'gpt-4.1-mini' });
+        return keepMsg;
+      }
+      // Se nao e confirmacao nem negacao, continua o fluxo normal (a IA vai interpretar)
+    }
+
+    // 5. Check if AI is active (cache 5 min para evitar query repetida)
+    const settings = await getCached<ClinicSettings | undefined>(
+      `clinic-settings:${clinicId}`,
+      300,
+      () => db.select().from(clinicSettings).where(eq(clinicSettings.clinicId, clinicId)).limit(1).then(r => r[0]),
+    );
 
     if (!settings || !isAiActive(settings)) {
       // AI not active — save message but don't respond
       return null;
     }
 
-    // 6. Get recent messages for context
-    const recentMessages = await conversationService.getRecentMessages(conversation.id, 10);
+    // 6. Get recent messages for context (30 mensagens pra manter contexto mais rico)
+    const recentMessages = await conversationService.getRecentMessages(conversation.id, 30);
     const historyTexts = recentMessages
       .filter(m => m.role === 'user')
       .map(m => m.content);
@@ -336,12 +424,12 @@ export async function processIncomingMessage(
       }
     }
 
-    // 9. Format conversation history for OpenAI
+    // 9. Format conversation history for OpenAI — truncar mensagens longas pra economizar tokens
     const chatMessages = recentMessages
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({
         role: m.role as 'user' | 'assistant',
-        content: m.content,
+        content: m.content.length > 500 ? m.content.substring(0, 500) + '...' : m.content,
       }));
 
     // 10. Call OpenAI chat completion (with function calling)
@@ -367,6 +455,15 @@ export async function processIncomingMessage(
         chatResult.toolCalls.push({ name: 'cancel_appointment', arguments: parsed });
       } catch { /* ignore parse errors */ }
       responseText = responseText.replace(/<!--CANCEL:.*?-->/g, '').trim();
+    }
+    // Fallback para check_availability via tag <!--CHECK:...-->
+    const checkTagMatch = responseText.match(/<!--CHECK:(.*?)-->/);
+    if (checkTagMatch && !chatResult.toolCalls.some(tc => tc.name === 'check_availability')) {
+      try {
+        const parsed = JSON.parse(checkTagMatch[1]);
+        chatResult.toolCalls.push({ name: 'check_availability', arguments: parsed });
+      } catch { /* ignore parse errors */ }
+      responseText = responseText.replace(/<!--CHECK:.*?-->/g, '').trim();
     }
 
     // 11. Handle tool calls (create_appointment, cancel_appointment)
@@ -412,18 +509,94 @@ export async function processIncomingMessage(
       }
 
       if (toolCall.name === 'cancel_appointment') {
+        // Confirmacao em 2 passos: perguntar antes de cancelar
+        const apptId = toolCall.arguments.appointmentId;
         try {
-          await appointmentService.cancelAppointment(
-            clinicId,
-            toolCall.arguments.appointmentId,
-            'Cancelado pelo cliente via WhatsApp',
-          );
-          console.info(`[Bot] Appointment ${toolCall.arguments.appointmentId} cancelled at clinic ${clinicId}`);
-          if (!responseText) {
-            responseText = 'Agendamento cancelado! Quer reagendar para outro dia?';
+          // Buscar detalhes do agendamento para mostrar ao cliente
+          const [apptDetail] = await db
+            .select({
+              startAt: appointments.startAt,
+              serviceName: services.name,
+              professionalName: professionals.name,
+            })
+            .from(appointments)
+            .leftJoin(services, eq(appointments.serviceId, services.id))
+            .leftJoin(professionals, eq(appointments.professionalId, professionals.id))
+            .where(and(
+              eq(appointments.id, apptId),
+              eq(appointments.clinicId, clinicId),
+            ))
+            .limit(1);
+
+          if (apptDetail) {
+            const dateStr = new Date(apptDetail.startAt).toLocaleDateString('pt-BR');
+            const timeStr = new Date(apptDetail.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            responseText = `Voce tem certeza que deseja cancelar o agendamento de ${apptDetail.serviceName || 'servico'} em ${dateStr} as ${timeStr} com ${apptDetail.professionalName || 'o profissional'}? Responda "sim" para confirmar.`;
+          } else {
+            responseText = 'Voce tem certeza que deseja cancelar esse agendamento? Responda "sim" para confirmar.';
           }
+
+          // Salvar mensagem com metadata pendingCancellation para o proximo passo
+          await conversationService.addMessage(
+            clinicId,
+            conversation.id,
+            'assistant',
+            responseText,
+            'CANCELAR',
+            { model: 'gpt-4.1-mini', pendingCancellation: apptId },
+          );
+          return responseText;
         } catch (err) {
-          console.error('[Bot] Error cancelling appointment:', err);
+          console.error('[Bot] Erro ao buscar detalhes do agendamento para cancelamento:', err);
+          responseText = 'Voce tem certeza que deseja cancelar esse agendamento? Responda "sim" para confirmar.';
+          await conversationService.addMessage(
+            clinicId,
+            conversation.id,
+            'assistant',
+            responseText,
+            'CANCELAR',
+            { model: 'gpt-4.1-mini', pendingCancellation: apptId },
+          );
+          return responseText;
+        }
+      }
+
+      if (toolCall.name === 'check_availability') {
+        try {
+          const { serviceId, professionalId: profId, date } = toolCall.arguments;
+          // Buscar slots para a data especifica (date ate date)
+          const slots = await availabilityService.getAvailableSlots(
+            clinicId,
+            serviceId,
+            profId || undefined,
+            date,
+            date,
+          );
+
+          // Limitar a 10 slots para nao sobrecarregar a resposta
+          const limitedSlots = slots.slice(0, 10).map(s => ({
+            profissional: s.professionalName,
+            horario: s.startTime,
+            data: s.date,
+          }));
+
+          if (limitedSlots.length === 0) {
+            // Sem horarios — informar ao modelo para que responda adequadamente
+            chatResult.toolCalls = chatResult.toolCalls.filter(tc => tc.name !== 'check_availability');
+            responseText = responseText || `Infelizmente nao temos horarios disponiveis para essa data (${date}). Quer que eu verifique outro dia?`;
+          } else {
+            // Injetar resultado na resposta para a IA formatar
+            const slotsText = limitedSlots.map(s => `${s.horario} com ${s.profissional}`).join(', ');
+            if (!responseText) {
+              responseText = `Horarios disponiveis em ${date}: ${slotsText}. Qual horario prefere?`;
+            }
+          }
+          console.info(`[Bot] check_availability: ${limitedSlots.length} slots encontrados para ${date}`);
+        } catch (err) {
+          console.error('[Bot] Erro ao consultar disponibilidade:', err);
+          if (!responseText) {
+            responseText = 'Tive um problema ao verificar os horarios. Pode tentar novamente?';
+          }
         }
       }
     }

@@ -27,6 +27,21 @@ router.post('/login', async (c) => {
   return success(c, result);
 });
 
+// POST /auth/refresh — gera novo par de tokens (NAO requer auth middleware)
+router.post('/refresh', async (c) => {
+  const body = await c.req.json();
+  const { refreshToken } = body;
+  if (!refreshToken || typeof refreshToken !== 'string') {
+    return error(c, 'VALIDATION_ERROR', 'refreshToken e obrigatorio', 400);
+  }
+  try {
+    const result = await authService.refreshAccessToken(refreshToken);
+    return success(c, result);
+  } catch {
+    return error(c, 'AUTH_INVALID', 'Refresh token invalido ou expirado', 401);
+  }
+});
+
 // GET /auth/me (protected - will be behind auth middleware in index.ts)
 router.get('/me', async (c) => {
   const userId = c.get('userId') as string;

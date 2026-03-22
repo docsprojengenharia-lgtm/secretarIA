@@ -3,7 +3,7 @@ import { db } from '@secretaria/db';
 import { clinics, users, clinicSettings } from '@secretaria/db';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../lib/errors.js';
-import { signToken } from '../middleware/auth.js';
+import { signToken, signRefreshToken, verifyRefreshToken } from '../middleware/auth.js';
 import type { RegisterInput, LoginInput } from '../validators/auth.js';
 
 function slugify(text: string): string {
@@ -58,8 +58,14 @@ export async function register(input: RegisterInput) {
     role: result.user.role,
   });
 
+  const refreshToken = signRefreshToken({
+    userId: result.user.id,
+    clinicId: result.clinic.id,
+  });
+
   return {
     token,
+    refreshToken,
     user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
     clinic: { id: result.clinic.id, name: result.clinic.name, slug: result.clinic.slug, segment: result.clinic.segment, plan: result.clinic.plan },
   };
@@ -85,11 +91,42 @@ export async function login(input: LoginInput) {
     role: user.role,
   });
 
+  const refreshToken = signRefreshToken({
+    userId: user.id,
+    clinicId: user.clinicId,
+  });
+
   return {
     token,
+    refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
     clinic: clinic ? { id: clinic.id, name: clinic.name, slug: clinic.slug, segment: clinic.segment, plan: clinic.plan } : null,
   };
+}
+
+// Gera novo par de tokens a partir de um refresh token valido
+export async function refreshAccessToken(refreshTokenValue: string) {
+  const payload = verifyRefreshToken(refreshTokenValue);
+
+  // Buscar dados atualizados do usuario no banco
+  const [user] = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
+  if (!user || !user.isActive) {
+    throw new AppError('AUTH_INVALID', 'Usuario inativo ou nao encontrado', 401);
+  }
+
+  const token = signToken({
+    userId: user.id,
+    clinicId: user.clinicId,
+    email: user.email,
+    role: user.role,
+  });
+
+  const refreshToken = signRefreshToken({
+    userId: user.id,
+    clinicId: user.clinicId,
+  });
+
+  return { token, refreshToken };
 }
 
 export async function getMe(userId: string) {

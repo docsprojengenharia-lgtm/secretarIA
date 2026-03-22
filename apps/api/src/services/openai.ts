@@ -3,6 +3,29 @@ import { env } from '../lib/env.js';
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
+/**
+ * Retry com backoff exponencial para chamadas transientes da OpenAI.
+ * Retenta apenas em erros 429 (rate limit) e 5xx (server error).
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      if (attempt === maxRetries) throw err;
+      // So retentar em erros transientes (rate limit ou server error)
+      const status =
+        (err as { status?: number })?.status ||
+        (err as { response?: { status?: number } })?.response?.status;
+      if (status && status < 500 && status !== 429) throw err;
+      const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+      console.warn(`[OpenAI] Tentativa ${attempt}/${maxRetries} falhou (status ${status}), retentando em ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('Retry exhausted');
+}
+
 export const INTENTS = [
   'SAUDACAO', 'AGENDAR', 'CANCELAR', 'REAGENDAR', 'CONFIRMAR',
   'DUVIDA_SERVICO', 'DUVIDA_HORARIO', 'FALAR_HUMANO', 'EMERGENCIA', 'OUTRO',
@@ -12,20 +35,22 @@ export type Intent = typeof INTENTS[number];
 
 export async function classifyIntent(message: string, history: string[]): Promise<Intent> {
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-nano',
-      response_format: { type: 'json_object' },
-      max_tokens: 50,
-      messages: [
-        {
-          role: 'system',
-          content: `Classifique a intencao da mensagem do cliente. Responda APENAS com JSON: {"intent":"<INTENT>"}
+    const response = await withRetry(() =>
+      openai.chat.completions.create({
+        model: 'gpt-4.1-nano',
+        response_format: { type: 'json_object' },
+        max_tokens: 50,
+        messages: [
+          {
+            role: 'system',
+            content: `Classifique a intencao da mensagem do cliente. Responda APENAS com JSON: {"intent":"<INTENT>"}
 Intencoes validas: ${INTENTS.join(', ')}
 Historico recente da conversa para contexto: ${history.slice(-3).join(' | ')}`,
-        },
-        { role: 'user', content: message },
-      ],
-    });
+          },
+          { role: 'user', content: message },
+        ],
+      }),
+    );
 
     const content = response.choices[0]?.message?.content || '{}';
     const parsed = JSON.parse(content);
@@ -53,7 +78,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string = 'a
   }
 }
 
-// Tools for function calling
+// Tools para function calling
 const BOOKING_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
@@ -85,6 +110,22 @@ const BOOKING_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'check_availability',
+      description: 'Consulta horarios disponiveis para um servico com um profissional especifico em uma data. Use quando o cliente perguntar sobre disponibilidade ou quiser saber horarios livres.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serviceId: { type: 'string', description: 'ID do servico (formato [sid:xxx])' },
+          professionalId: { type: 'string', description: 'ID do profissional (formato [pid:xxx]). Opcional — se nao informado, retorna horarios de todos os profissionais.' },
+          date: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
+        },
+        required: ['serviceId', 'date'],
+      },
+    },
+  },
 ];
 
 export interface ToolCall {
@@ -103,16 +144,18 @@ export async function chatCompletion(
   forceToolUse: boolean = false,
 ): Promise<ChatResult> {
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
-      max_tokens: 500,
-      tools: BOOKING_TOOLS,
-      tool_choice: forceToolUse ? 'required' : 'auto',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-    });
+    const response = await withRetry(() =>
+      openai.chat.completions.create({
+        model: 'gpt-4.1-mini',
+        max_tokens: 500,
+        tools: BOOKING_TOOLS,
+        tool_choice: forceToolUse ? 'required' : 'auto',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+      }),
+    );
 
     const choice = response.choices[0];
     const text = choice?.message?.content || '';

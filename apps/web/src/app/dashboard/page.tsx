@@ -1,10 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { formatTime } from '@/lib/formatters';
+import { getToken } from '@/lib/auth';
 import type { Appointment, PaginatedResponse } from '@/types';
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.startsWith('http')
+    ? process.env.NEXT_PUBLIC_API_URL
+    : 'https://secretaria-api.fly.dev';
 
 interface DashboardStats {
   appointmentsToday: number;
@@ -22,30 +28,67 @@ export default function DashboardPage() {
     nextAppointment: null,
   });
   const [loading, setLoading] = useState(true);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
-  useEffect(() => {
-    async function fetchStats() {
-      setLoading(true);
-      const today = new Date().toISOString().split('T')[0];
+  const fetchStats = useCallback(async () => {
+    setLoading(true);
+    const today = new Date().toISOString().split('T')[0];
 
-      const [appointmentsRes, contactsRes, conversationsRes, nextRes] = await Promise.all([
-        api.get<PaginatedResponse<Appointment>>(`/appointments?date=${today}&status=confirmed`),
-        api.get<PaginatedResponse<unknown>>('/contacts?status=new'),
-        api.get<PaginatedResponse<unknown>>('/conversations?status=pending_human'),
-        api.get<PaginatedResponse<Appointment>>(`/appointments?date=${today}&status=confirmed&limit=1`),
-      ]);
+    const [appointmentsRes, contactsRes, conversationsRes, nextRes] = await Promise.all([
+      api.get<PaginatedResponse<Appointment>>(`/appointments?date=${today}&status=confirmed`),
+      api.get<PaginatedResponse<unknown>>('/contacts?status=new'),
+      api.get<PaginatedResponse<unknown>>('/conversations?status=pending_human'),
+      api.get<PaginatedResponse<Appointment>>(`/appointments?date=${today}&status=confirmed&limit=1`),
+    ]);
 
-      setStats({
-        appointmentsToday: appointmentsRes.data?.total ?? 0,
-        newContacts: contactsRes.data?.total ?? 0,
-        pendingConversations: conversationsRes.data?.total ?? 0,
-        nextAppointment: nextRes.data?.data?.[0] ?? null,
-      });
-      setLoading(false);
-    }
-
-    fetchStats();
+    setStats({
+      appointmentsToday: appointmentsRes.data?.total ?? 0,
+      newContacts: contactsRes.data?.total ?? 0,
+      pendingConversations: conversationsRes.data?.total ?? 0,
+      nextAppointment: nextRes.data?.data?.[0] ?? null,
+    });
+    setLoading(false);
   }, []);
+
+  // Fetch inicial
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  // SSE — real-time updates
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+
+    const es = new EventSource(`${API_URL}/sse/events?token=${encodeURIComponent(token)}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Refresh dashboard quando eventos relevantes chegam
+        if (
+          data.type === 'new_appointment' ||
+          data.type === 'appointment_update' ||
+          data.type === 'new_contact' ||
+          data.type === 'new_message'
+        ) {
+          fetchStats();
+        }
+      } catch {
+        // ignore parse errors (e.g. keepalive)
+      }
+    };
+
+    es.onerror = () => {
+      // EventSource reconecta automaticamente
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, [fetchStats]);
 
   if (loading) {
     return (

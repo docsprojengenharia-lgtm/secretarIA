@@ -30,20 +30,37 @@ export default function ConversationsPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Resetar pagina ao mudar filtro ou busca
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, debouncedSearch]);
 
   const fetchConversations = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    params.set('page', '1');
+    params.set('page', String(page));
     params.set('limit', '20');
     if (statusFilter) params.set('status', statusFilter);
+    if (debouncedSearch) params.set('search', debouncedSearch);
 
     const res = await api.get<PaginatedResponse<Conversation>>(
       `/conversations?${params.toString()}`
     );
     setConversations(res.data?.data ?? []);
+    setTotalPages(res.data?.totalPages ?? 1);
     setLoading(false);
-  }, [statusFilter]);
+  }, [statusFilter, debouncedSearch, page]);
 
   useEffect(() => {
     fetchConversations();
@@ -58,8 +75,8 @@ export default function ConversationsPage() {
         </p>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-end gap-4">
+      {/* Filtros e busca */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-foreground">Status</label>
           <select
@@ -73,6 +90,29 @@ export default function ConversationsPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="relative max-w-md flex-1">
+          <svg
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+            />
+          </svg>
+          <input
+            type="text"
+            placeholder="Buscar por nome ou telefone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-md border border-input bg-background py-2 pl-10 pr-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
         </div>
       </div>
 
@@ -138,6 +178,29 @@ export default function ConversationsPage() {
               </div>
             </button>
           ))}
+        </div>
+
+        {/* Paginacao */}
+        <div className="flex items-center justify-between mt-4 px-4 py-3 border-t border-border">
+          <span className="text-sm text-muted-foreground">
+            Pagina {page} de {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={page >= totalPages}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+            >
+              Proximo
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@ import { db } from '@secretaria/db';
 import { clinics, clinicSettings } from '@secretaria/db';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../lib/errors.js';
+import { invalidateCache } from '../lib/cache.js';
 
 export async function getClinic(clinicId: string) {
   const [clinic] = await db
@@ -125,6 +126,9 @@ export async function updateSettings(
   if (!updated) {
     throw new AppError('SETTINGS_NOT_FOUND', 'Configuracoes nao encontradas', 404);
   }
+
+  // Invalida cache das settings para que o bot use os dados novos
+  await invalidateCache(`clinic-settings:${clinicId}`);
 
   return {
     id: updated.id,

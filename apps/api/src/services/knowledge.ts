@@ -3,11 +3,13 @@ import { db, connection, knowledgeDocuments, knowledgeChunks } from '@secretaria
 import { eq, and, desc } from 'drizzle-orm';
 import { env } from '../lib/env.js';
 import { AppError } from '../lib/errors.js';
+import { addToKnowledgeQueue } from '../workers/setup.js';
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
 const CHUNK_MAX_CHARS = 2000;
 const CHUNK_OVERLAP_CHARS = 200;
+const EMBEDDING_BATCH_SIZE = 5;
 
 // ---------------------------------------------------------------------------
 // Embedding generation
@@ -34,9 +36,9 @@ function chunkText(text: string): string[] {
     const trimmed = paragraph.trim();
     if (!trimmed) continue;
 
-    // If a single paragraph exceeds the max, split it by sentences
+    // Se um paragrafo excede o max, dividir por sentencas
     if (trimmed.length > CHUNK_MAX_CHARS) {
-      // Flush current chunk first
+      // Flush chunk atual primeiro
       if (currentChunk.trim()) {
         chunks.push(currentChunk.trim());
         currentChunk = '';
@@ -47,7 +49,7 @@ function chunkText(text: string): string[] {
       for (const sentence of sentences) {
         if ((sentenceChunk + ' ' + sentence).length > CHUNK_MAX_CHARS && sentenceChunk) {
           chunks.push(sentenceChunk.trim());
-          // Overlap: keep the last portion
+          // Overlap: manter a porcao final
           const overlapStart = Math.max(0, sentenceChunk.length - CHUNK_OVERLAP_CHARS);
           sentenceChunk = sentenceChunk.slice(overlapStart).trim() + ' ' + sentence;
         } else {
@@ -60,10 +62,10 @@ function chunkText(text: string): string[] {
       continue;
     }
 
-    // If adding this paragraph would exceed the max, flush
+    // Se adicionar este paragrafo excede o max, flush
     if ((currentChunk + '\n\n' + trimmed).length > CHUNK_MAX_CHARS && currentChunk) {
       chunks.push(currentChunk.trim());
-      // Overlap: keep the last portion of the current chunk
+      // Overlap: manter a porcao final do chunk atual
       const overlapStart = Math.max(0, currentChunk.length - CHUNK_OVERLAP_CHARS);
       currentChunk = currentChunk.slice(overlapStart).trim() + '\n\n' + trimmed;
     } else {
@@ -71,7 +73,7 @@ function chunkText(text: string): string[] {
     }
   }
 
-  // Flush remaining
+  // Flush restante
   if (currentChunk.trim()) {
     chunks.push(currentChunk.trim());
   }
@@ -80,7 +82,7 @@ function chunkText(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Upload document — create record, chunk text, generate embeddings, store
+// Upload document — cria registro e despacha processamento (async ou sincrono)
 // ---------------------------------------------------------------------------
 
 export async function uploadDocument(
@@ -93,7 +95,7 @@ export async function uploadDocument(
     throw new AppError('EMPTY_CONTENT', 'O conteudo do documento esta vazio', 400);
   }
 
-  // Create document record with status "processing"
+  // Criar registro do documento com status "processing"
   const [doc] = await db.insert(knowledgeDocuments).values({
     clinicId,
     fileName,
@@ -101,29 +103,73 @@ export async function uploadDocument(
     status: 'processing',
   }).returning();
 
+  // Tentar despachar para fila async (BullMQ via Redis)
+  const queued = await addToKnowledgeQueue('process-embeddings', {
+    clinicId,
+    documentId: doc.id,
+    textContent,
+  });
+
+  if (!queued) {
+    // Fallback sincrono — Redis indisponivel, processa inline (mesmo comportamento anterior)
+    console.log(`[Knowledge] Redis indisponivel — processando documento ${doc.id} de forma sincrona`);
+    try {
+      await processDocumentEmbeddings(clinicId, doc.id, textContent);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
+      throw new AppError('PROCESSING_ERROR', `Erro ao processar documento: ${errorMessage}`, 500);
+    }
+  }
+
+  // Retornar documento imediatamente (status 'processing' se async, 'ready' se sincrono)
+  const [current] = await db
+    .select()
+    .from(knowledgeDocuments)
+    .where(and(
+      eq(knowledgeDocuments.id, doc.id),
+      eq(knowledgeDocuments.clinicId, clinicId),
+    ))
+    .limit(1);
+
+  return current;
+}
+
+// ---------------------------------------------------------------------------
+// Processamento de embeddings — chamado pelo worker (async) ou inline (fallback)
+// ---------------------------------------------------------------------------
+
+export async function processDocumentEmbeddings(
+  clinicId: string,
+  documentId: string,
+  textContent: string,
+) {
   try {
-    // Chunk the text
+    // Dividir texto em chunks
     const chunks = chunkText(textContent);
 
     if (chunks.length === 0) {
       throw new Error('Nenhum trecho extraido do documento');
     }
 
-    // Generate embeddings and insert chunks
-    for (let i = 0; i < chunks.length; i++) {
-      const embedding = await generateEmbedding(chunks[i]);
+    // Gerar embeddings em lotes de EMBEDDING_BATCH_SIZE para paralelizar chamadas OpenAI
+    for (let i = 0; i < chunks.length; i += EMBEDDING_BATCH_SIZE) {
+      const batch = chunks.slice(i, i + EMBEDDING_BATCH_SIZE);
+      const embeddings = await Promise.all(batch.map((chunk) => generateEmbedding(chunk)));
 
-      await db.insert(knowledgeChunks).values({
-        clinicId,
-        documentId: doc.id,
-        content: chunks[i],
-        chunkIndex: i,
-        embedding,
-      });
+      // Inserir chunks do lote no banco
+      for (let j = 0; j < batch.length; j++) {
+        await db.insert(knowledgeChunks).values({
+          clinicId,
+          documentId,
+          content: batch[j],
+          chunkIndex: i + j,
+          embedding: embeddings[j],
+        });
+      }
     }
 
-    // Update document status to ready
-    const [updated] = await db
+    // Atualizar status do documento para 'ready'
+    await db
       .update(knowledgeDocuments)
       .set({
         status: 'ready',
@@ -131,14 +177,13 @@ export async function uploadDocument(
         updatedAt: new Date(),
       })
       .where(and(
-        eq(knowledgeDocuments.id, doc.id),
+        eq(knowledgeDocuments.id, documentId),
         eq(knowledgeDocuments.clinicId, clinicId),
-      ))
-      .returning();
+      ));
 
-    return updated;
+    console.log(`[Knowledge] Documento ${documentId} processado: ${chunks.length} chunks`);
   } catch (err) {
-    // Mark document as error
+    // Marcar documento como erro
     const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
     await db
       .update(knowledgeDocuments)
@@ -148,11 +193,12 @@ export async function uploadDocument(
         updatedAt: new Date(),
       })
       .where(and(
-        eq(knowledgeDocuments.id, doc.id),
+        eq(knowledgeDocuments.id, documentId),
         eq(knowledgeDocuments.clinicId, clinicId),
       ));
 
-    throw new AppError('PROCESSING_ERROR', `Erro ao processar documento: ${errorMessage}`, 500);
+    console.error(`[Knowledge] Erro ao processar documento ${documentId}:`, errorMessage);
+    throw err;
   }
 }
 

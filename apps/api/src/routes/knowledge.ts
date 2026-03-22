@@ -27,8 +27,12 @@ router.post('/upload', async (c) => {
     return error(c, 'VALIDATION_ERROR', 'Conteudo do texto e obrigatorio', 400);
   }
 
-  // Estimate file size from text content (UTF-8 bytes)
+  // Validar tamanho do arquivo antes de processar
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
   const fileSize = new TextEncoder().encode(textContent).length;
+  if (fileSize > MAX_FILE_SIZE) {
+    return error(c, 'FILE_TOO_LARGE', 'Arquivo excede o limite de 10MB', 413);
+  }
 
   const doc = await knowledgeService.uploadDocument(clinicId, fileName, fileSize, textContent);
   return success(c, doc, 201);

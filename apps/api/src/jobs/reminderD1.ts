@@ -2,6 +2,7 @@ import { db } from '@secretaria/db';
 import { appointments, contacts, professionals, services, clinics } from '@secretaria/db';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { addToOutgoingQueue } from '../workers/setup.js';
+import { logger } from '../lib/logger.js';
 
 export async function runReminderD1() {
   const tomorrow = new Date();
@@ -33,7 +34,7 @@ export async function runReminderD1() {
       lte(appointments.startAt, dayEnd),
     ));
 
-  console.log(`[ReminderD1] Found ${rows.length} appointments for tomorrow`);
+  logger.info({ count: rows.length }, 'ReminderD1: agendamentos para amanha');
 
   for (const row of rows) {
     if (!row.instanceName || !row.contactPhone) continue;

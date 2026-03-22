@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { Professional, Service, WorkingHour, LinkedService } from '@/types';
 
@@ -103,9 +104,11 @@ export default function ProfessionalsPage() {
     setSaving(false);
 
     if (res.success) {
+      toast.success(editingId ? 'Profissional atualizado com sucesso' : 'Profissional cadastrado com sucesso');
       resetForm();
       fetchProfessionals();
     } else {
+      toast.error(res.error?.message || 'Erro ao salvar profissional');
       setError(res.error?.message || 'Erro ao salvar');
     }
   }
@@ -114,7 +117,10 @@ export default function ProfessionalsPage() {
     if (!window.confirm('Tem certeza que deseja excluir este profissional?')) return;
     const res = await api.delete(`/professionals/${id}`);
     if (res.success) {
+      toast.success('Profissional excluido com sucesso');
       fetchProfessionals();
+    } else {
+      toast.error(res.error?.message || 'Erro ao excluir profissional');
     }
   }
 
@@ -160,8 +166,10 @@ export default function ProfessionalsPage() {
     const res = await api.put(`/professionals/${profId}/hours`, payload);
     setSavingHours(false);
 
-    if (!res.success) {
-      alert(res.error?.message || 'Erro ao salvar horarios');
+    if (res.success) {
+      toast.success('Horarios salvos com sucesso');
+    } else {
+      toast.error(res.error?.message || 'Erro ao salvar horarios');
     }
   }
 
@@ -190,20 +198,24 @@ export default function ProfessionalsPage() {
     if (!addServiceId) return;
     const res = await api.post(`/professionals/${profId}/services`, { serviceId: addServiceId });
     if (res.success) {
+      toast.success('Servico vinculado com sucesso');
       setAddServiceId('');
       const refreshRes = await api.get<LinkedService[]>(`/professionals/${profId}/services`);
       if (refreshRes.success && refreshRes.data) {
         setProfServices(refreshRes.data);
       }
     } else {
-      alert(res.error?.message || 'Erro ao vincular servico');
+      toast.error(res.error?.message || 'Erro ao vincular servico');
     }
   }
 
   async function unlinkService(profId: string, serviceId: string) {
     const res = await api.delete(`/professionals/${profId}/services/${serviceId}`);
     if (res.success) {
+      toast.success('Servico desvinculado');
       setProfServices((prev) => prev.filter((s) => s.serviceId !== serviceId));
+    } else {
+      toast.error(res.error?.message || 'Erro ao desvincular servico');
     }
   }
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatPhone, formatTime } from '@/lib/formatters';
+import { toast } from 'sonner';
 import type { Conversation } from '@/types';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -26,24 +27,47 @@ export default function ConversationDetailPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    async function fetchConversation() {
-      setLoading(true);
-      const res = await api.get<Conversation>(`/conversations/${id}`);
-      if (res.success && res.data) {
-        setConversation(res.data);
-      }
-      setLoading(false);
+  async function fetchConversation(showLoading = true) {
+    if (showLoading) setLoading(true);
+    const res = await api.get<Conversation>(`/conversations/${id}`);
+    if (res.success && res.data) {
+      setConversation(res.data);
     }
+    if (showLoading) setLoading(false);
+  }
 
+  useEffect(() => {
     fetchConversation();
   }, [id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation?.messages]);
+
+  async function handleSendReply() {
+    if (!replyText.trim() || sendingReply) return;
+
+    setSendingReply(true);
+    try {
+      const res = await api.post(`/conversations/${id}/reply`, { message: replyText.trim() });
+      if (res.success) {
+        setReplyText('');
+        toast.success('Mensagem enviada!');
+        // Recarregar conversa para mostrar a nova mensagem
+        await fetchConversation(false);
+      } else {
+        toast.error(res.error?.message || 'Erro ao enviar mensagem');
+      }
+    } catch {
+      toast.error('Erro ao enviar mensagem');
+    } finally {
+      setSendingReply(false);
+    }
+  }
 
   async function handleHandoff() {
     setActionLoading(true);
@@ -185,11 +209,44 @@ export default function ConversationDetailPage() {
         )}
       </div>
 
-      {/* Footer */}
+      {/* Footer — Reply input */}
       <div className="rounded-b-lg border border-t-0 border-border bg-white px-4 py-3">
-        <p className="text-center text-xs text-muted-foreground">
-          Atendimento gerenciado pela IA. Use o dashboard para intervir quando necessario.
-        </p>
+        {conversation.status !== 'closed' ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendReply();
+                }
+              }}
+              placeholder="Digite sua resposta..."
+              disabled={sendingReply}
+              className="flex-1 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSendReply}
+              disabled={sendingReply || !replyText.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {sendingReply ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+              ) : (
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                </svg>
+              )}
+              Enviar
+            </button>
+          </div>
+        ) : (
+          <p className="text-center text-xs text-muted-foreground">
+            Conversa encerrada. Reabra para responder.
+          </p>
+        )}
       </div>
     </div>
   );

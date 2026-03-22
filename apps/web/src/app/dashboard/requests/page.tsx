@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/formatters';
 
@@ -15,6 +16,13 @@ interface BookingRequest {
   ownerNote?: string;
   suggestedStartAt?: string;
   createdAt: string;
+}
+
+interface PaginatedBookingRequests {
+  data: BookingRequest[];
+  total: number;
+  page: number;
+  totalPages: number;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -38,15 +46,28 @@ export default function RequestsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Resetar pagina ao mudar filtro
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
-    const res = await api.get<BookingRequest[]>(
-      `/booking-requests?status=${filter}&limit=50`
+    const params = new URLSearchParams();
+    params.set('status', filter);
+    params.set('page', String(page));
+    params.set('limit', '20');
+
+    const res = await api.get<PaginatedBookingRequests>(
+      `/booking-requests?${params.toString()}`
     );
-    setRequests(Array.isArray(res.data) ? res.data : []);
+    setRequests(res.data?.data ?? []);
+    setTotalPages(res.data?.totalPages ?? 1);
     setLoading(false);
-  }, [filter]);
+  }, [filter, page]);
 
   useEffect(() => {
     fetchRequests();
@@ -55,8 +76,10 @@ export default function RequestsPage() {
   async function handleApprove(id: string) {
     setActionLoading(id);
     const res = await api.patch(`/booking-requests/${id}/approve`);
-    if (!res.success) {
-      alert(res.error?.message || 'Erro ao aprovar');
+    if (res.success) {
+      toast.success('Solicitacao aprovada com sucesso');
+    } else {
+      toast.error(res.error?.message || 'Erro ao aprovar solicitacao');
     }
     await fetchRequests();
     setActionLoading(null);
@@ -67,8 +90,10 @@ export default function RequestsPage() {
     const res = await api.patch(`/booking-requests/${id}/reject`, {
       note: rejectNote || undefined,
     });
-    if (!res.success) {
-      alert(res.error?.message || 'Erro ao rejeitar');
+    if (res.success) {
+      toast.success('Solicitacao rejeitada');
+    } else {
+      toast.error(res.error?.message || 'Erro ao rejeitar solicitacao');
     }
     setRejectingId(null);
     setRejectNote('');
@@ -190,6 +215,31 @@ export default function RequestsPage() {
               </div>
             </div>
           ))
+        )}
+
+        {/* Paginacao */}
+        {!loading && requests.length > 0 && (
+          <div className="flex items-center justify-between mt-4 px-4 py-3 border-t border-gray-200">
+            <span className="text-sm text-gray-500">
+              Pagina {page} de {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={page >= totalPages}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+              >
+                Proximo
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

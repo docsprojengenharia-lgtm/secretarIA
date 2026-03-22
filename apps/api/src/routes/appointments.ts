@@ -76,4 +76,12 @@ router.patch('/:id/no-show', async (c) => {
   return success(c, appt);
 });
 
+// DELETE /appointments/:id — soft delete (marca deletedAt)
+router.delete('/:id', async (c) => {
+  const clinicId = c.get('clinicId') as string;
+  const id = c.req.param('id');
+  await appointmentService.softDeleteAppointment(clinicId, id);
+  return success(c, { deleted: true });
+});
+
 export default router;

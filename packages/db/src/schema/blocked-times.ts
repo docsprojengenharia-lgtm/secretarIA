@@ -10,6 +10,8 @@ export const blockedTimes = pgTable('blocked_times', {
   endAt: timestamp('end_at').notNull(),
   reason: varchar('reason', { length: 255 }), // feriado, ferias, almoco, imprevisto, recesso
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   clinicTimeIdx: index('bt_clinic_time_idx').on(table.clinicId, table.startAt, table.endAt),
   clinicProfTimeIdx: index('bt_clinic_prof_time_idx').on(table.clinicId, table.professionalId, table.startAt, table.endAt),

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 
 interface KnowledgeDocument {
@@ -97,9 +98,11 @@ export default function KnowledgePage() {
     setUploading(false);
 
     if (res.success) {
+      toast.success('Documento enviado com sucesso');
       resetUpload();
       fetchDocuments();
     } else {
+      toast.error(res.error?.message || 'Erro ao enviar documento');
       setUploadError(res.error?.message || 'Erro ao enviar documento');
     }
   }
@@ -108,7 +111,10 @@ export default function KnowledgePage() {
     if (!window.confirm(`Tem certeza que deseja excluir "${name}"?`)) return;
     const res = await api.delete(`/knowledge/${id}`);
     if (res.success) {
+      toast.success('Documento excluido com sucesso');
       fetchDocuments();
+    } else {
+      toast.error(res.error?.message || 'Erro ao excluir documento');
     }
   }
 

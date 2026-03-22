@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/formatters';
 import type { Professional } from '@/types';
@@ -144,9 +145,15 @@ export default function BlockedTimesPage() {
       const body: Record<string, unknown> = { startAt, endAt, reason: reason || undefined };
       body.professionalId = tab === 'professional' && professionalId ? professionalId : null;
 
-      await api.post('/blocked-times', body);
+      const postRes = await api.post('/blocked-times', body);
+      if (!postRes.success) {
+        toast.error(postRes.error?.message || 'Erro ao bloquear data');
+        setSaving(false);
+        return;
+      }
     }
 
+    toast.success(`${sorted.length} dia${sorted.length > 1 ? 's' : ''} bloqueado${sorted.length > 1 ? 's' : ''} com sucesso`);
     setSaving(false);
     setSelectedDates(new Set());
     setReason('');
@@ -154,7 +161,12 @@ export default function BlockedTimesPage() {
   }
 
   async function handleDelete(id: string) {
-    await api.delete(`/blocked-times/${id}`);
+    const res = await api.delete(`/blocked-times/${id}`);
+    if (res.success) {
+      toast.success('Bloqueio removido com sucesso');
+    } else {
+      toast.error(res.error?.message || 'Erro ao remover bloqueio');
+    }
     fetchBlocked();
   }
 

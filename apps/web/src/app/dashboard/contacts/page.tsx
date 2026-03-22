@@ -22,6 +22,8 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Debounce search input
   useEffect(() => {
@@ -29,10 +31,15 @@ export default function ContactsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Resetar pagina ao buscar
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
   const fetchContacts = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    params.set('page', '1');
+    params.set('page', String(page));
     params.set('limit', '20');
     if (debouncedSearch) params.set('search', debouncedSearch);
 
@@ -40,8 +47,9 @@ export default function ContactsPage() {
       `/contacts?${params.toString()}`
     );
     setContacts(res.data?.data ?? []);
+    setTotalPages(res.data?.totalPages ?? 1);
     setLoading(false);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, page]);
 
   useEffect(() => {
     fetchContacts();
@@ -142,6 +150,31 @@ export default function ContactsPage() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Paginacao */}
+        {!loading && contacts.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <span className="text-sm text-muted-foreground">
+              Pagina {page} de {totalPages}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={page >= totalPages}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+              >
+                Proximo
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

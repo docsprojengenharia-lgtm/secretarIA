@@ -37,6 +37,7 @@ export const knowledgeChunks = pgTable('knowledge_chunks', {
   chunkIndex: integer('chunk_index').notNull(),
   embedding: text('embedding'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({
   clinicIdIdx: index('kc_clinic_id_idx').on(table.clinicId),
   documentIdIdx: index('kc_document_id_idx').on(table.documentId),

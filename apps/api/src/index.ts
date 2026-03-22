@@ -1,12 +1,24 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
+import { logger as honoLogger } from 'hono/logger';
 import { serve } from '@hono/node-server';
+import * as Sentry from '@sentry/node';
 
 import { env } from './lib/env.js';
+import { logger } from './lib/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimit.js';
 import { authMiddleware } from './middleware/auth.js';
+
+// Inicializar Sentry antes de qualquer middleware
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV || 'production',
+    tracesSampleRate: 0.1,
+  });
+  logger.info('Sentry inicializado');
+}
 
 // Routes
 import healthRouter from './routes/health.js';
@@ -22,6 +34,13 @@ import contactsRouter from './routes/contacts.js';
 import bookingRequestsRouter from './routes/booking-requests.js';
 import knowledgeRouter from './routes/knowledge.js';
 import blockedTimesRouter from './routes/blocked-times.js';
+import analyticsRouter from './routes/analytics.js';
+import reportsRouter from './routes/reports.js';
+import sseRouter from './routes/sse.js';
+import channelsRouter from './routes/channels.js';
+import instagramRouter from './routes/instagram.js';
+import publicRouter from './routes/public.js';
+import templatesRouter from './routes/templates.js';
 
 // Workers
 import { startWorkers, stopWorkers } from './workers/setup.js';
@@ -35,7 +54,7 @@ import { startScheduler } from './jobs/scheduler.js';
 const app = new Hono();
 
 // Middlewares
-app.use('*', logger());
+app.use('*', honoLogger());
 
 const allowedOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
 app.use('*', cors({ origin: allowedOrigins, credentials: true }));
@@ -48,10 +67,13 @@ app.use('*', async (c, next) => {
   c.header('X-XSS-Protection', '0');
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
 });
 
-// Public routes
+// Public routes (NO auth)
 app.route('/health', healthRouter);
+app.post('/public/clinics/*/book', rateLimiter({ windowMs: 60_000, max: 10 }));
+app.route('/public', publicRouter);
 
 // Root
 app.get('/', (c) => {
@@ -78,6 +100,12 @@ app.use('/contacts/*', authMiddleware());
 app.use('/booking-requests/*', authMiddleware());
 app.use('/blocked-times/*', authMiddleware());
 app.use('/knowledge/*', authMiddleware());
+app.use('/analytics/*', authMiddleware());
+app.use('/reports/*', authMiddleware());
+app.use('/channels/*', authMiddleware());
+app.use('/templates/*', authMiddleware());
+// SSE: auth via query param (EventSource nao suporta headers customizados)
+// Instagram webhook: public (Meta precisa acessar sem auth)
 
 // Register routes (after middleware)
 app.route('/auth', authRouter);
@@ -92,6 +120,12 @@ app.route('/contacts', contactsRouter);
 app.route('/booking-requests', bookingRequestsRouter);
 app.route('/blocked-times', blockedTimesRouter);
 app.route('/knowledge', knowledgeRouter);
+app.route('/analytics', analyticsRouter);
+app.route('/reports', reportsRouter);
+app.route('/sse', sseRouter);
+app.route('/channels', channelsRouter);
+app.route('/instagram', instagramRouter);
+app.route('/templates', templatesRouter);
 
 // Error handlers
 app.onError(errorHandler);
@@ -101,10 +135,10 @@ app.notFound((c) => {
 
 // Start server
 const port = env.PORT;
-console.log(`SecretarIA API starting on port ${port}...`);
+logger.info({ port }, 'SecretarIA API iniciando...');
 
 const server = serve({ fetch: app.fetch, port, hostname: '::' });
-console.log(`Server running on http://localhost:${port}`);
+logger.info({ port }, 'Server rodando');
 
 // Start BullMQ workers
 startWorkers();
@@ -115,19 +149,19 @@ startScheduler();
 // Enable pgvector extension
 connection.unsafe('CREATE EXTENSION IF NOT EXISTS vector').catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
-  console.warn('[pgvector] Extension may already exist:', message);
+  logger.warn({ err: message }, 'pgvector extension pode ja existir');
 });
 
 // Graceful shutdown
 async function shutdown(signal: string) {
-  console.log(`\n${signal} received — shutting down...`);
+  logger.info({ signal }, 'Sinal recebido — encerrando...');
   await stopWorkers();
   server.close(() => {
-    console.log('Server closed.');
+    logger.info('Server encerrado');
     process.exit(0);
   });
   setTimeout(() => {
-    console.error('Forced exit after timeout');
+    logger.error('Encerramento forcado por timeout');
     process.exit(1);
   }, 10_000);
 }

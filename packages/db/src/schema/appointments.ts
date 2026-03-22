@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, timestamp, index, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { clinics } from './clinics';
 import { contacts } from './contacts';
 import { professionals } from './professionals';
@@ -7,9 +8,9 @@ import { services } from './services';
 export const appointments = pgTable('appointments', {
   id: uuid('id').primaryKey().defaultRandom(),
   clinicId: uuid('clinic_id').notNull().references(() => clinics.id, { onDelete: 'cascade' }),
-  contactId: uuid('contact_id').notNull().references(() => contacts.id),
-  professionalId: uuid('professional_id').notNull().references(() => professionals.id),
-  serviceId: uuid('service_id').notNull().references(() => services.id),
+  contactId: uuid('contact_id').notNull().references(() => contacts.id, { onDelete: 'cascade' }),
+  professionalId: uuid('professional_id').notNull().references(() => professionals.id, { onDelete: 'cascade' }),
+  serviceId: uuid('service_id').notNull().references(() => services.id, { onDelete: 'cascade' }),
   startAt: timestamp('start_at').notNull(),
   endAt: timestamp('end_at').notNull(),
   status: varchar('status', { length: 20 }).notNull().default('confirmed'), // confirmed, completed, cancelled, no_show
@@ -23,10 +24,13 @@ export const appointments = pgTable('appointments', {
   npsRespondedAt: timestamp('nps_responded_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   clinicDateStatusIdx: index('appt_clinic_date_status_idx').on(table.clinicId, table.startAt, table.status),
   clinicProfDateIdx: index('appt_clinic_prof_date_idx').on(table.clinicId, table.professionalId, table.startAt),
   clinicContactIdx: index('appt_clinic_contact_idx').on(table.clinicId, table.contactId),
+  // npsScore deve ser entre 1 e 5 quando preenchido
+  npsScoreCheck: check('appt_nps_score_check', sql`${table.npsScore} IS NULL OR (${table.npsScore} >= 1 AND ${table.npsScore} <= 5)`),
 }));
 
 export type Appointment = typeof appointments.$inferSelect;

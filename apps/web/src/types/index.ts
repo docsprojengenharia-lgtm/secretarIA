@@ -79,7 +79,7 @@ export interface Appointment {
   status: 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   cancelledAt: string | null;
   cancelReason: string | null;
-  source: 'ai' | 'dashboard' | 'manual' | 'ligacao' | 'instagram' | 'presencial' | 'outro';
+  source: 'ai' | 'dashboard' | 'manual' | 'ligacao' | 'instagram' | 'presencial' | 'outro' | 'booking_page';
   createdAt: string;
   updatedAt: string;
 }
@@ -161,4 +161,16 @@ export interface WhatsAppStatus {
 export interface WhatsAppQr {
   base64?: string;
   pairingCode?: string;
+}
+
+export interface Channel {
+  id: string;
+  clinicId: string;
+  type: 'whatsapp' | 'instagram' | 'telegram';
+  name: string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  status: 'connected' | 'disconnected' | 'error';
+  createdAt: string;
+  updatedAt: string | null;
 }

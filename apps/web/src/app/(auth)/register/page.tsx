@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { setToken } from '@/lib/auth';
+import { setToken, setRefreshToken } from '@/lib/auth';
 import { useAuthStore } from '@/store/auth';
 
 const SEGMENTS = [
@@ -34,7 +34,7 @@ export default function RegisterPage() {
     setError('');
     setLoading(true);
 
-    const res = await api.post<{ token: string; user: any; clinic: any }>('/auth/register', {
+    const res = await api.post<{ token: string; refreshToken: string; user: any; clinic: any }>('/auth/register', {
       name,
       email,
       password,
@@ -45,6 +45,7 @@ export default function RegisterPage() {
 
     if (res.success && res.data) {
       setToken(res.data.token);
+      if (res.data.refreshToken) setRefreshToken(res.data.refreshToken);
       setAuth(res.data.user, res.data.clinic);
       router.replace('/dashboard');
     } else {

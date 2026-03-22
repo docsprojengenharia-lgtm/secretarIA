@@ -2,6 +2,8 @@ import { db } from '@secretaria/db';
 import { appointments, contacts, services, clinics } from '@secretaria/db';
 import { eq, and, lte, gte, isNull } from 'drizzle-orm';
 import { addToOutgoingQueue } from '../workers/setup.js';
+import { logger } from '../lib/logger.js';
+import { maskPhone } from '../lib/mask.js';
 
 /**
  * NPS Sender — runs every hour.
@@ -33,7 +35,7 @@ export async function runNpsSender() {
       lte(appointments.updatedAt, to),
     ));
 
-  console.log(`[NPS] Found ${rows.length} appointments for NPS`);
+  logger.info({ count: rows.length }, 'NPS: agendamentos encontrados');
 
   for (const row of rows) {
     if (!row.instanceName || !row.contactPhone) continue;
@@ -52,6 +54,6 @@ export async function runNpsSender() {
       .set({ npsSentAt: new Date() })
       .where(eq(appointments.id, row.appointmentId));
 
-    console.log(`[NPS] Sent NPS to ${row.contactPhone} for appointment ${row.appointmentId}`);
+    logger.info({ phone: maskPhone(row.contactPhone), appointmentId: row.appointmentId }, 'NPS enviado');
   }
 }

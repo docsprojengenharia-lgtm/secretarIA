@@ -70,7 +70,13 @@ voce DEVE OBRIGATORIAMENTE chamar a funcao create_appointment usando os IDs [sid
 Sem chamar a funcao, o agendamento NAO sera registrado no sistema.
 
 REGRA CRITICA DE CANCELAMENTO:
-Quando o cliente confirmar cancelamento, chame a funcao cancel_appointment com o [aid:...] correto.`;
+Quando o cliente quiser cancelar, chame a funcao cancel_appointment com o [aid:...] correto.
+O sistema vai pedir confirmacao automaticamente antes de executar o cancelamento.
+
+CONSULTA DE DISPONIBILIDADE:
+Quando o cliente perguntar sobre horarios disponiveis para uma data especifica, voce pode chamar a funcao check_availability
+passando o serviceId [sid:...], opcionalmente o professionalId [pid:...], e a data no formato YYYY-MM-DD.
+Isso retorna os horarios livres para aquela data.`;
 
   return prompt;
 }

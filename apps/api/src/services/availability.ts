@@ -102,7 +102,37 @@ export async function getAvailableSlots(
       lte(appointments.startAt, toDate),
     ));
 
-  // 7. Generate slots
+  // 7. Pré-indexar dados em Maps para lookups O(1) por profissional
+  // Blocked times: por professionalId (null = clínica inteira, aplica a todos)
+  const blockedByProf = new Map<string, typeof allBlocked>();
+  const blockedClinicWide: typeof allBlocked = [];
+  for (const b of allBlocked) {
+    if (b.professionalId === null) {
+      blockedClinicWide.push(b);
+    } else {
+      const key = b.professionalId;
+      if (!blockedByProf.has(key)) blockedByProf.set(key, []);
+      blockedByProf.get(key)!.push(b);
+    }
+  }
+
+  // Appointments existentes: por professionalId
+  const apptsByProf = new Map<string, typeof existingAppts>();
+  for (const a of existingAppts) {
+    const key = a.professionalId;
+    if (!apptsByProf.has(key)) apptsByProf.set(key, []);
+    apptsByProf.get(key)!.push(a);
+  }
+
+  // Working hours: por professionalId + dayOfWeek
+  const hoursByProfDay = new Map<string, typeof allHours>();
+  for (const h of allHours) {
+    const key = `${h.professionalId}:${h.dayOfWeek}`;
+    if (!hoursByProfDay.has(key)) hoursByProfDay.set(key, []);
+    hoursByProfDay.get(key)!.push(h);
+  }
+
+  // 8. Generate slots
   const slots: Slot[] = [];
   const now = new Date();
   const minAdvanceMs = minAdvanceHours * 60 * 60 * 1000;
@@ -117,9 +147,13 @@ export async function getAvailableSlots(
     const dateStr = d.toISOString().split('T')[0];
 
     for (const profId of profIds) {
-      // Working hours for this professional on this day
-      const hours = allHours.filter(h => h.professionalId === profId && h.dayOfWeek === dayOfWeek);
-      if (hours.length === 0) continue;
+      // Working hours para este profissional neste dia (lookup O(1))
+      const hours = hoursByProfDay.get(`${profId}:${dayOfWeek}`);
+      if (!hours || hours.length === 0) continue;
+
+      // Blocked times e appointments deste profissional (lookup O(1))
+      const profBlocked = blockedByProf.get(profId) || [];
+      const profAppts = apptsByProf.get(profId) || [];
 
       for (const wh of hours) {
         const [startH, startM] = wh.startTime.split(':').map(Number);
@@ -148,9 +182,10 @@ export async function getAvailableSlots(
             continue;
           }
 
-          // Check blocked times (professional-specific OR clinic-wide when professionalId is null)
-          const isBlocked = allBlocked.some(b =>
-            (b.professionalId === profId || b.professionalId === null) &&
+          // Check blocked times (profissional-specific + clinic-wide)
+          const isBlocked = profBlocked.some(b =>
+            slotStart < b.endAt && slotEnd > b.startAt
+          ) || blockedClinicWide.some(b =>
             slotStart < b.endAt && slotEnd > b.startAt
           );
           if (isBlocked) {
@@ -159,8 +194,7 @@ export async function getAvailableSlots(
           }
 
           // Check existing appointments
-          const hasConflict = existingAppts.some(a =>
-            a.professionalId === profId &&
+          const hasConflict = profAppts.some(a =>
             slotStart < a.endAt && slotEnd > a.startAt
           );
           if (hasConflict) {

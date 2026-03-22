@@ -13,3 +13,5 @@ export * from './messages';
 export * from './waitlist';
 export * from './booking-requests';
 export * from './knowledge';
+export * from './message-templates';
+export * from './channels';

@@ -5,6 +5,7 @@ import {
 } from '@secretaria/db';
 import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import { addToOutgoingQueue } from '../workers/setup.js';
+import { logger } from '../lib/logger.js';
 
 export async function runDailySummary() {
   const activeClinics = await db
@@ -177,5 +178,5 @@ export async function runDailySummary() {
     }
   }
 
-  console.log(`[DailySummary] Sent daily agendas for ${activeClinics.length} clinics`);
+  logger.info({ clinicCount: activeClinics.length }, 'DailySummary: resumos enviados');
 }

@@ -7,9 +7,9 @@ import { services } from './services';
 export const bookingRequests = pgTable('booking_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
   clinicId: uuid('clinic_id').notNull().references(() => clinics.id, { onDelete: 'cascade' }),
-  contactId: uuid('contact_id').notNull().references(() => contacts.id),
-  serviceId: uuid('service_id').notNull().references(() => services.id),
-  professionalId: uuid('professional_id').references(() => professionals.id),
+  contactId: uuid('contact_id').notNull().references(() => contacts.id, { onDelete: 'cascade' }),
+  serviceId: uuid('service_id').notNull().references(() => services.id, { onDelete: 'cascade' }),
+  professionalId: uuid('professional_id').references(() => professionals.id, { onDelete: 'cascade' }),
   requestedStartAt: timestamp('requested_start_at').notNull(),
   status: varchar('status', { length: 20 }).notNull().default('pending'), // pending, approved, rejected, expired
   ownerNote: text('owner_note'), // motivo da rejeicao ou sugestao alternativa

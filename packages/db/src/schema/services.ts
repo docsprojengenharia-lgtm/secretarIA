@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, boolean, timestamp, index, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { clinics } from './clinics';
 
 export const services = pgTable('services', {
@@ -16,6 +17,10 @@ export const services = pgTable('services', {
 }, (table) => ({
   clinicIdIdx: index('services_clinic_id_idx').on(table.clinicId),
   categoryIdx: index('services_category_idx').on(table.category),
+  // preco deve ser positivo
+  priceCheck: check('services_price_check', sql`${table.priceInCents} > 0`),
+  // duracao deve ser positiva
+  durationCheck: check('services_duration_check', sql`${table.durationMinutes} > 0`),
 }));
 
 export type Service = typeof services.$inferSelect;

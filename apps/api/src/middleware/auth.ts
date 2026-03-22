@@ -9,6 +9,12 @@ export interface JwtPayload {
   role: string;
 }
 
+export interface RefreshTokenPayload {
+  userId: string;
+  clinicId: string;
+  type: 'refresh';
+}
+
 export function authMiddleware() {
   return async (c: Context, next: Next) => {
     const authHeader = c.req.header('Authorization');
@@ -39,5 +45,19 @@ export function authMiddleware() {
 }
 
 export function signToken(payload: JwtPayload): string {
-  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '1h' });
+}
+
+// Gera refresh token com expiracao de 7 dias (contem apenas userId, clinicId e type)
+export function signRefreshToken(payload: Omit<RefreshTokenPayload, 'type'>): string {
+  return jwt.sign({ ...payload, type: 'refresh' }, env.JWT_SECRET, { expiresIn: '7d' });
+}
+
+// Verifica e decodifica o refresh token, garantindo que eh do tipo correto
+export function verifyRefreshToken(token: string): RefreshTokenPayload {
+  const payload = jwt.verify(token, env.JWT_SECRET) as RefreshTokenPayload;
+  if (payload.type !== 'refresh') {
+    throw new Error('Token nao eh do tipo refresh');
+  }
+  return payload;
 }
