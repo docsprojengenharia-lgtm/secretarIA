@@ -126,6 +126,7 @@ export default function ConversationsPage() {
           Nenhuma conversa encontrada
         </div>
       ) : (
+        <>
         <div className="grid gap-3">
           {conversations.map((conv) => (
             <button
@@ -202,6 +203,7 @@ export default function ConversationsPage() {
             </button>
           </div>
         </div>
+        </>
       )}
     </div>
   );
